@@ -182,6 +182,30 @@ var buildImageCmd = &cobra.Command{
 	},
 }
 
+
+// TEMPORARY
+
+
+var buildDockerFlags struct {
+	version string
+}
+var buildDockerCmd = &cobra.Command{
+	Use:   "docker",
+	Short: "Build a docker image from to run mixer",
+	Long:  `Build a docker image from to run mixer`,
+	Run: func(cmd *cobra.Command, args []string) {
+		b, err := builder.NewFromConfig(config)
+		if err != nil {
+			fail(err)
+		}
+		
+		err = b.Docker(args, buildDockerFlags.version)
+		if err != nil {
+			failf("couldn't build image: %s", err)
+		}
+	},
+}
+
 var buildDeltaPacksCmd = &cobra.Command{
 	Use:   "delta-packs",
 	Short: "Build packs used to optimize update between versions",
@@ -264,6 +288,7 @@ var buildCmds = []*cobra.Command{
 	buildUpdateCmd,
 	buildAllCmd,
 	buildImageCmd,
+	buildDockerCmd,
 	buildDeltaPacksCmd,
 }
 
@@ -283,6 +308,8 @@ func init() {
 
 	buildImageCmd.Flags().StringVar(&buildFlags.format, "format", "", "Supply the format used for the Mix")
 	buildImageCmd.Flags().StringVar(&buildFlags.template, "template", "", "Path to template file to use")
+
+	buildDockerCmd.Flags().StringVar(&buildDockerFlags.version, "version", "", "Version to build docker image for")
 
 	buildDeltaPacksCmd.Flags().Uint32Var(&buildDeltaPacksFlags.from, "from", 0, "Generate packs from a specific version")
 	buildDeltaPacksCmd.Flags().Uint32Var(&buildDeltaPacksFlags.previousVersions, "previous-versions", 0, "Generate packs for multiple previous versions")
