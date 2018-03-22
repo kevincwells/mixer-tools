@@ -1444,11 +1444,10 @@ gpgcheck=0
 priority=1
 {{end}}`
 
-// BuildBundles will attempt to construct the bundles required by using the m4
-// bundle configurations in conjunction with the DNF configuration file,
-// resolving all files for each bundle using dnf resolve and no-op installs.
-// One full chroot is created from this step with the file contents of all
-// bundles.
+// BuildBundles will attempt to construct the bundles required by generating a
+// DNF configuration file, then resolving all files for each bundle using dnf
+// resolve and no-op installs. One full chroot is created from this step with
+// the file contents of all bundles.
 func (b *Builder) BuildBundles(template *x509.Certificate, privkey *rsa.PrivateKey, signflag bool) error {
 	// Fetch upstream bundle files if needed
 	if err := b.getUpstreamBundles(b.UpstreamVer, true); err != nil {
