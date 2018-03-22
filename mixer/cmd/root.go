@@ -62,6 +62,29 @@ var RootCmd = &cobra.Command{
 				os.Exit(0)
 			}
 		}
+
+		// Check if --native was explicitly set to false
+		if builder.Native ||  ! (builder.Native && RootCmd.Flags().Changed("native")) {
+			// run command in container
+		}
+		// else 
+
+		// Check if command should be run natively
+
+		// if so, check if command can be run natively
+		var version string
+		if cmd.Name() == "init" {
+			// TODO: account for the fact they might have passed "latest"
+			version = initFlags.clearVer
+		}
+		b := builder.New()
+		native, err :=b.CheckNative(version)
+		if err != nil {
+			return err
+		}
+		builder.Native = native
+
+
 		return checkCmdDeps(cmd)
 	},
 
@@ -146,6 +169,7 @@ func init() {
 	// TODO: Remove this once we drop the old config format
 	RootCmd.PersistentFlags().BoolVar(&builder.UseNewConfig, "new-config", false, "EXPERIMENTAL: use the new TOML config format")
 
+	RootCmd.PersistentFlags().BoolVar(&builder.Native, "native", false, "Run mixer command on native host instead of in a container")
 	RootCmd.PersistentFlags().BoolVar(&builder.Offline, "offline", false, "Skip caching upstream-bundles; work entirely with local-bundles")
 
 	RootCmd.AddCommand(initCmd)

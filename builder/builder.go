@@ -43,6 +43,10 @@ import (
 // Version of Mixer. Also used by the Makefile for releases.
 const Version = "4.2.0"
 
+// Native controls whether mixer runs the command on the native machine or in a
+// container.
+var Native = false
+
 // UseNewSwupdServer controls whether to use the new implementation of
 // swupd-server (package swupd) when possible. This is an experimental feature.
 var UseNewSwupdServer = false
@@ -2054,8 +2058,8 @@ func writeMetaFiles(path, format, version string) error {
 	return ioutil.WriteFile(filepath.Join(path, "mixer-src-version"), []byte(version), 0644)
 }
 
-func (b *Builder) getUpstreamFormatRange() (format string, first, latest uint32, err error) {
-	format, err = b.DownloadFileFromUpstream(fmt.Sprintf("update/%d/format", b.UpstreamVerUint32))
+func (b *Builder) getUpstreamFormatRange(upstreamVersion string) (format string, first, latest uint32, err error) {
+	format, err = b.DownloadFileFromUpstream(fmt.Sprintf("update/%s/format", upstreamVersion))
 	if err != nil {
 		return "", 0, 0, errors.Wrap(err, "couldn't download information about upstream")
 	}
@@ -2090,7 +2094,7 @@ func (b *Builder) getUpstreamFormatRange() (format string, first, latest uint32,
 // PrintVersions prints the current mix and upstream versions, and the
 // latest version of upstream.
 func (b *Builder) PrintVersions() error {
-	format, first, latest, err := b.getUpstreamFormatRange()
+	format, first, latest, err := b.getUpstreamFormatRange(b.UpstreamVer)
 	if err != nil {
 		return err
 	}
@@ -2109,7 +2113,7 @@ Latest upstream in format: %d
 // UpdateVersions will validate then update both mix and upstream versions. If upstream
 // version is 0, then the latest upstream version possible will be taken instead.
 func (b *Builder) UpdateVersions(nextMix, nextUpstream uint32) error {
-	format, first, latest, err := b.getUpstreamFormatRange()
+	format, first, latest, err := b.getUpstreamFormatRange(b.UpstreamVer)
 	if err != nil {
 		return err
 	}

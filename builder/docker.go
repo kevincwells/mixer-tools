@@ -22,13 +22,44 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/clearlinux/mixer-tools/helpers"
 	"github.com/pkg/errors"
+
+	"github.com/clearlinux/mixer-tools/helpers"
 )
 
 const Dockerfile = `FROM scratch
 ADD dockerbase.tar.xz /
 CMD ["/bin/bash"]`
+
+// checkNative checks whether or not the command can be run natively. It
+// attempts to determine the format for the host machine, and if successful, 
+// looks up the format for the desired upstream version. Returns true if the two
+// are equal.
+func (b *Builder)CheckNative(upstreamVersion string) (bool, error) {
+	// Determine the host's format
+	hostFormat, err := ioutil.ReadFile("/usr/share/defaults/format")
+	if os.IsNotExist(err) {
+		fmt.Println("Unable to determine host format. Cannot run natively.")
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	// Read the upstreamversion file
+	if upstreamVersion == "" {
+		if err := b.ReadVersions(); err != nil {
+			return false, errors.Wrap(err, "Unable to determine upstream version")
+		}
+		upstreamVersion = b.UpstreamVer
+	}
+
+	format, _, _, err := b.getUpstreamFormatRange(upstreamVersion)
+	if err != nil {
+		return false, err
+	}
+	
+	return string(hostFormat) == format, nil
+}
 
 
 func (b *Builder)generateDockerBase(bundles bundleSet, ver string, baseDir string) error {
