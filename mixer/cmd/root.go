@@ -63,27 +63,25 @@ var RootCmd = &cobra.Command{
 			}
 		}
 
-		// Check if --native was explicitly set to false
-		if builder.Native ||  ! (builder.Native && RootCmd.Flags().Changed("native")) {
-			// run command in container
+		// if '--native', check if format missmatch
+		if builder.Native {
+			var version string
+			if cmd.Name() == "init" {
+				version = initFlags.clearVer
+			}
+			b := builder.New()
+			hostFormat, upstreamFormat, err :=b.GetHostAndUpstreamFormats(version)
+			if err != nil {
+				return err
+			}
+			
+			if hostFormat == "" {
+				fmt.Println("Warning: Unable to determine host format. Running natively may fail.")
+			} else if hostFormat != upstreamFormat {
+				fmt.Println("Warning: The host format and mix upstream format do not match.",
+					"Mixer may be incompatible with this format; running natively may fail.")
+			}
 		}
-		// else 
-
-		// Check if command should be run natively
-
-		// if so, check if command can be run natively
-		var version string
-		if cmd.Name() == "init" {
-			// TODO: account for the fact they might have passed "latest"
-			version = initFlags.clearVer
-		}
-		b := builder.New()
-		native, err :=b.CheckNative(version)
-		if err != nil {
-			return err
-		}
-		builder.Native = native
-
 
 		return checkCmdDeps(cmd)
 	},

@@ -27,42 +27,44 @@ import (
 	"github.com/clearlinux/mixer-tools/helpers"
 )
 
-const Dockerfile = `FROM scratch
-ADD dockerbase.tar.xz /
-CMD ["/bin/bash"]`
-
-// checkNative checks whether or not the command can be run natively. It
-// attempts to determine the format for the host machine, and if successful, 
-// looks up the format for the desired upstream version. Returns true if the two
-// are equal.
-func (b *Builder)CheckNative(upstreamVersion string) (bool, error) {
+// GetHostAndUpstreamFormats retreives the formats for the host and the mix's
+// upstream version. It attempts to determine the format for the host machine,
+// and if successful, looks up the format for the desired upstream version.
+func (b *Builder) GetHostAndUpstreamFormats(upstreamVer string) (string, string, error) {
 	// Determine the host's format
-	hostFormat, err := ioutil.ReadFile("/usr/share/defaults/format")
-	if os.IsNotExist(err) {
-		fmt.Println("Unable to determine host format. Cannot run natively.")
-		return false, nil
-	} else if err != nil {
-		return false, err
+	hostFormat, err := ioutil.ReadFile("/usr/share/defaults/swupd/format")
+	if err != nil && !os.IsNotExist(err) {
+		return "", "", err
 	}
 
-	// Read the upstreamversion file
-	if upstreamVersion == "" {
+	// Get the upstream version
+	if upstreamVer == "" {
 		if err := b.ReadVersions(); err != nil {
-			return false, errors.Wrap(err, "Unable to determine upstream version")
+			return "", "", errors.Wrap(err, "Unable to determine upstream version")
 		}
-		upstreamVersion = b.UpstreamVer
+		upstreamVer = b.UpstreamVer
+	} else if upstreamVer == "latest" {
+		ver, err := b.getLatestUpstreamVersion()
+		if err != nil {
+			return "", "", err
+		}
+		upstreamVer = ver
 	}
 
-	format, _, _, err := b.getUpstreamFormatRange(upstreamVersion)
+	upstreamFormat, _, _, err := b.getUpstreamFormatRange(upstreamVer)
 	if err != nil {
-		return false, err
+		return "", "", err
 	}
 	
-	return string(hostFormat) == format, nil
+	return string(hostFormat), upstreamFormat, nil
 }
 
 
-func (b *Builder)generateDockerBase(bundles bundleSet, ver string, baseDir string) error {
+const Dockerfile = `FROM scratch
+ADD mixer.tar.xz /
+CMD ["/bin/bash"]`
+
+func (b *Builder) generateDockerBase(bundles bundleSet, ver string, baseDir string) error {
 	dockerChroot, err := ioutil.TempDir(baseDir, "chroot-")
 	if err != nil {
 		errors.Errorf("Failed to generate temporary docker image chroot: %s", err)
@@ -83,7 +85,7 @@ func (b *Builder)generateDockerBase(bundles bundleSet, ver string, baseDir strin
 
 	}
 
-	//Build the update url
+	// Build the update url
 	end, err := url.Parse("/update")
 	if err != nil {
 		return err
@@ -120,8 +122,43 @@ func (b *Builder)generateDockerBase(bundles bundleSet, ver string, baseDir strin
 	return nil
 }
 
+func (b *Builder) fetchDockerBase(ver string, baseDir string) error {
+	fmt.Println("got here 1.1")
+	filename := filepath.Join(baseDir, "mixer.tar.xz")
+	// Return if already exists
+	if _, err := os.Stat(filename); err == nil {
+		// TODO: Check if checksum/sig matches (once base images are signed)
+		fmt.Println("File already exists; skipping download")
+		return nil
+	}
+	fmt.Println("got here 1.2")
+	
+	// TODO: Remove this once mixer image is published with releases
+	url := "https://clr-jenkins.ostc.intel.com/job/create-docker-mixer/ws/mixer.tar.xz"
+	if err := helpers.Download(url, filename); err != nil {
+		return errors.Wrap(err, "Failed to download internal temporary docker base")
+	}
+	return nil
+
+	
+	// Download the mixer base image from upstream
+	upstreamFile := fmt.Sprintf("/releases/%s/clear/mixer.tar.xz", ver)
+	if err := b.DownloadFileFromUpstream(upstreamFile, filename); err != nil {
+		return errors.Wrapf(err, "Failed to download docker image base for ver %s", ver)
+	}
+
+	return nil
+}
+
 func createDockerfile(dir string) error {
-	f, err := os.Create(filepath.Join(dir, "Dockerfile"))
+	filename := filepath.Join(dir, "Dockerfile")
+
+	// Return if already exists
+	if _, err := os.Stat(filename); err == nil {
+		return nil
+	}
+
+	f, err := os.Create(filename)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create Dockerfile")
 	}
@@ -136,6 +173,62 @@ func createDockerfile(dir string) error {
 
 	return nil
 }
+
+func (b *Builder) buildDockerImage(format, ver string) error {
+	// Make docker root dir
+	wd, _ := os.Getwd()
+	dockerRoot := filepath.Join(wd, fmt.Sprintf("docker/mixer-%s", format))
+	if err := os.MkdirAll(dockerRoot, 0777); err != nil {
+		errors.Wrapf(err, "Failed to generate docker work dir: %s", dockerRoot)
+	}
+	
+	// TODO: Check if docker image already exists and return early
+
+	fmt.Println("got here 1")
+
+	// Fetch docker image base
+	if err := b.fetchDockerBase(ver, dockerRoot); err != nil {
+		return errors.Wrap(err, "Error fetching Docker image base")
+	}
+
+	fmt.Println("got here 2")
+	// Generate Dockerfile
+	if err := createDockerfile(dockerRoot); err != nil {
+		return err
+	}
+	fmt.Println("got here 3")
+	// Build Docker image
+	cmd := []string{
+		"docker",
+		"build",
+		"-t", fmt.Sprintf("mixer-tools/mixer:%v"),
+		"--rm",
+		"-f", filepath.Join(dockerRoot,"Dockerfile"),
+	}
+	if err := helpers.RunCommand(cmd[0],cmd[1:]...); err != nil {
+		return errors.Wrapf(err, "Failed to build dockerfile with command %q", strings.Join(cmd, " "))
+	}
+
+	return nil
+}
+
+func (b *Builder) RunCommandInContainer(cmd string) error {
+	format, first, _, err := b.getUpstreamFormatRange(b.UpstreamVer)
+	if err != nil {
+		return err
+	}
+
+
+	if err := b.buildDockerImage(format, fmt.Sprint(first)); err != nil {
+		return err
+	}
+
+	// Run command
+	fmt.Printf("Running command in container: %v", cmd)
+
+	return nil
+}
+
 
 func (b *Builder) Docker(bundles []string, ver string) error {
 	// Make bundleset for bundles

@@ -164,42 +164,90 @@ func (b *Builder) initDirs() error {
 
 // Get latest CLR version
 func (b *Builder) getLatestUpstreamVersion() (string, error) {
-	return b.DownloadFileFromUpstream("/latest")
+	ver, err := b.DownloadFileFromUpstreamAsString("/latest")
+	if err != nil {
+		return "", errors.Wrap(err, "Failed to retrieve latest published upstream version")
+	}
+
+	return ver, nil
 }
 
-// DownloadFileFromUpstream will download a file from the Upstream URL
-// joined with the passed subpath. It will trim spaces from the result.
-func (b *Builder) DownloadFileFromUpstream(subpath string) (string, error) {
+func (b *Builder) getUpstreamFileReader(subpath string) (*io.ReadCloser, error) {
 	// Build the URL
 	end, err := url.Parse(subpath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	base, err := url.Parse(b.UpstreamURL)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
 	resolved := base.ResolveReference(end).String()
-	// Fetch the version and parse it
+
 	resp, err := http.Get(resolved)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("got status %q when downloading: %s", resp.Status, resolved)
+		return nil, fmt.Errorf("got status %q when downloading: %s", resp.Status, resolved)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	return &resp.Body, nil
+}
+
+// DownloadFileFromUpstreamAsString will download a file from the Upstream URL
+// joined with the passed subpath. It will trim spaces from the result.
+func (b *Builder) DownloadFileFromUpstream(subpath string, filename string) (error) {
+	fr, err := b.getUpstreamFileReader(subpath)
+	if err != nil {
+		return errors.Wrap(err, "Failed to download file from upstream")
+	}
+	defer func(){
+		_ = (*fr).Close()
+	}()
+
+	// If no filename, infer from download path
+	if filename == "" {
+		_, filename = filepath.Split(subpath)
+	}
+
+	out, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = out.Close()
+	}()
+
+	_, err = io.Copy(out, *fr)
+	if err != nil {
+		if rmErr := os.RemoveAll(filename); err != nil {
+			return errors.Wrap(err, rmErr.Error())
+		}
+		return err
+	}
+
+	return nil
+}
+
+// DownloadFileFromUpstreamAsString will download a file from the Upstream URL
+// joined with the passed subpath. It will trim spaces from the result.
+func (b *Builder) DownloadFileFromUpstreamAsString(subpath string) (string, error) {
+	fr, err := b.getUpstreamFileReader(subpath)
+	if err != nil {
+		return "", errors.Wrap(err, "Failed to download file from upstream")
+	}
+	defer func(){
+		_ = (*fr).Close()
+	}()
+
+	content, err := ioutil.ReadAll(*fr)
 	if err != nil {
 		return "", err
 	}
 
-	return strings.TrimSpace(string(body)), nil
+	return strings.TrimSpace(string(content)), nil
 }
 
 const mixDirGitIgnore = `upstream-bundles/
@@ -227,7 +275,7 @@ func (b *Builder) InitMix(upstreamVer string, mixVer string, allLocal bool, allU
 	if upstreamVer == "latest" {
 		ver, err := b.getLatestUpstreamVersion()
 		if err != nil {
-			return errors.Wrap(err, "Failed to retrieve latest published upstream version")
+			return err
 		}
 		upstreamVer = ver
 	}
@@ -2058,14 +2106,14 @@ func writeMetaFiles(path, format, version string) error {
 	return ioutil.WriteFile(filepath.Join(path, "mixer-src-version"), []byte(version), 0644)
 }
 
-func (b *Builder) getUpstreamFormatRange(upstreamVersion string) (format string, first, latest uint32, err error) {
-	format, err = b.DownloadFileFromUpstream(fmt.Sprintf("update/%s/format", upstreamVersion))
+func (b *Builder) getUpstreamFormatRange(version string) (format string, first, latest uint32, err error) {
+	format, err = b.DownloadFileFromUpstreamAsString(fmt.Sprintf("update/%s/format", version))
 	if err != nil {
 		return "", 0, 0, errors.Wrap(err, "couldn't download information about upstream")
 	}
 
 	readUint32 := func(subpath string) (uint32, error) {
-		str, rerr := b.DownloadFileFromUpstream(subpath)
+		str, rerr := b.DownloadFileFromUpstreamAsString(subpath)
 		if rerr != nil {
 			return 0, rerr
 		}
@@ -2131,7 +2179,7 @@ func (b *Builder) UpdateVersions(nextMix, nextUpstream uint32) error {
 	}
 
 	// Verify the version exists by checking if its Manifest.MoM is around.
-	_, err = b.DownloadFileFromUpstream(fmt.Sprintf("/update/%d/Manifest.MoM", nextUpstream))
+	_, err = b.DownloadFileFromUpstreamAsString(fmt.Sprintf("/update/%d/Manifest.MoM", nextUpstream))
 	if err != nil {
 		return errors.Wrapf(err, "invalid upstream version %d", nextUpstream)
 	}

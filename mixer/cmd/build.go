@@ -199,10 +199,16 @@ var buildDockerCmd = &cobra.Command{
 			fail(err)
 		}
 		
-		err = b.Docker(args, buildDockerFlags.version)
-		if err != nil {
-			failf("couldn't build image: %s", err)
+		if builder.Native {
+			fmt.Println("Trying to run natively!")
+		} else {
+			b.RunCommandInContainer("command")
 		}
+
+		//err = b.Docker(args, buildDockerFlags.version)
+		//if err != nil {
+		//	failf("couldn't build image: %s", err)
+		//}
 	},
 }
 
