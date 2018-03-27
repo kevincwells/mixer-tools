@@ -20,6 +20,7 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -239,9 +240,21 @@ func copyFileWithFlags(dest string, src string, flags int) error {
 	return nil
 }
 
-// Download will attempt to download a from URL to the given filename
+// Download will attempt to download a from URL to the given filename.
 func Download(filename string, url string) (err error) {
-	infile, err := http.Get(url)
+	return DownloadInsecure(filename, url, false)
+}
+
+// Download will attempt to download a from URL to the given filename.
+func DownloadInsecure(filename string, url string, insecure bool) (err error) {
+	var infile *http.Response
+	if insecure {
+		tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+		client := &http.Client{Transport: tr}
+		infile, err = client.Get(url)
+	} else {
+		infile, err = http.Get(url)
+	}
 	if err != nil {
 		return err
 	}

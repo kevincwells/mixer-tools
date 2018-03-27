@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type buildCmdFlags struct {
@@ -199,16 +200,26 @@ var buildDockerCmd = &cobra.Command{
 			fail(err)
 		}
 		
+		command := []string{cmd.Name()}
+
+
+
+		for p := cmd.Parent(); p != nil; p = p.Parent() {
+			command = append([]string{p.Name()}, command...)
+		}
+		cmd.Flags().Visit(func(flag *pflag.Flag){
+				command = append(command, "--" + flag.Name + "=" + flag.Value.String())
+			})
+
+		command = append(command, args...)
+
 		if builder.Native {
 			fmt.Println("Trying to run natively!")
 		} else {
-			b.RunCommandInContainer("command")
+			if err := b.RunCommandInContainer(command); err != nil {
+				fail(err)
+			}
 		}
-
-		//err = b.Docker(args, buildDockerFlags.version)
-		//if err != nil {
-		//	failf("couldn't build image: %s", err)
-		//}
 	},
 }
 

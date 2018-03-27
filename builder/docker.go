@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -62,7 +64,8 @@ func (b *Builder) GetHostAndUpstreamFormats(upstreamVer string) (string, string,
 
 const Dockerfile = `FROM scratch
 ADD mixer.tar.xz /
-CMD ["/bin/bash"]`
+CMD ["/bin/bash"]
+`
 
 func (b *Builder) generateDockerBase(bundles bundleSet, ver string, baseDir string) error {
 	dockerChroot, err := ioutil.TempDir(baseDir, "chroot-")
@@ -123,7 +126,6 @@ func (b *Builder) generateDockerBase(bundles bundleSet, ver string, baseDir stri
 }
 
 func (b *Builder) fetchDockerBase(ver string, baseDir string) error {
-	fmt.Println("got here 1.1")
 	filename := filepath.Join(baseDir, "mixer.tar.xz")
 	// Return if already exists
 	if _, err := os.Stat(filename); err == nil {
@@ -131,11 +133,10 @@ func (b *Builder) fetchDockerBase(ver string, baseDir string) error {
 		fmt.Println("File already exists; skipping download")
 		return nil
 	}
-	fmt.Println("got here 1.2")
 	
 	// TODO: Remove this once mixer image is published with releases
-	url := "https://clr-jenkins.ostc.intel.com/job/create-docker-mixer/ws/mixer.tar.xz"
-	if err := helpers.Download(url, filename); err != nil {
+	url := "http://clr-jenkins.ostc.intel.com/job/create-docker-mixer/ws/mixer.tar.xz"
+	if err := helpers.DownloadInsecure(filename, url, true); err != nil {
 		return errors.Wrap(err, "Failed to download internal temporary docker base")
 	}
 	return nil
@@ -174,6 +175,10 @@ func createDockerfile(dir string) error {
 	return nil
 }
 
+func getDockerImageName(format string) string {
+	return fmt.Sprintf("mixer-tools/mixer:%s", format)
+}
+
 func (b *Builder) buildDockerImage(format, ver string) error {
 	// Make docker root dir
 	wd, _ := os.Getwd()
@@ -183,36 +188,104 @@ func (b *Builder) buildDockerImage(format, ver string) error {
 	}
 	
 	// TODO: Check if docker image already exists and return early
+	//		Run "docker images -q mixer-tools/mixer:format" and check if response == ""
 
-	fmt.Println("got here 1")
+	// TODO: Look into Docker Content Trust, or any other mechanism for verifying
+	// the validity of the docker image
 
 	// Fetch docker image base
 	if err := b.fetchDockerBase(ver, dockerRoot); err != nil {
 		return errors.Wrap(err, "Error fetching Docker image base")
 	}
 
-	fmt.Println("got here 2")
 	// Generate Dockerfile
 	if err := createDockerfile(dockerRoot); err != nil {
 		return err
 	}
-	fmt.Println("got here 3")
 	// Build Docker image
 	cmd := []string{
 		"docker",
 		"build",
-		"-t", fmt.Sprintf("mixer-tools/mixer:%v"),
+		"-t", getDockerImageName(format),
 		"--rm",
-		"-f", filepath.Join(dockerRoot,"Dockerfile"),
+		filepath.Join(dockerRoot, "."),
 	}
 	if err := helpers.RunCommand(cmd[0],cmd[1:]...); err != nil {
-		return errors.Wrapf(err, "Failed to build dockerfile with command %q", strings.Join(cmd, " "))
+		return errors.Wrap(err, "Failed to build Docker image")
 	}
 
 	return nil
 }
 
-func (b *Builder) RunCommandInContainer(cmd string) error {
+// reduceDockerMounts takes a list of directory paths and reduces it to a
+// minimal, non-redundant list. For example, if the list includes both "/foo"
+// and "/foo/bar", then "/foo/bar" would be removed, as its parent is already
+// in the list. This funciton requires paths to have no trailing slash.
+func reduceDockerMounts(paths []string) []string {
+	if len(paths) <= 1 {
+		return paths
+	}
+
+	sort.Strings(paths) // Puts "/foo" before "/foo/bar"
+
+	for i:=1; i < len(paths); i++ {
+		if paths[i] == paths[i-1] || strings.HasPrefix(paths[i], paths[i-1] + "/") { // "/" is to prevent "/foobar" matching "/foo"
+			paths = append(paths[:i], paths[i+1:]...)
+			i-- // Because removal shifts things left
+		}
+	}
+
+	return paths
+}
+
+// getDockerMounts returns a minimal list of all directories in the config that
+// need to be mounted inside the container. Only the "Buiilder" and "Mixer"
+// sections of the conf are parsed.
+func (b *Builder) getDockerMounts() ([]string) {
+	// Returns the longest substring of path that is the path to a directory.
+	var getMaxPath func(path string) string
+	getMaxPath = func(path string) string {
+		f, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			// Try again on parent. This happens because some values in config
+			// are paths to files that get created by the commands, but their
+			// parent directory exists and needs to be mounted.
+			path = filepath.Dir(path)
+			return getMaxPath(path)
+		} else if err != nil {
+			return ""
+		}
+		if f.Mode().IsDir() {
+			return path
+		}
+		return filepath.Dir(path)
+	}
+
+	wd, _ := os.Getwd()
+	mounts := []string{wd}
+
+	config := reflect.ValueOf(b.Config.Builder)
+	for i:=0; i < config.NumField(); i++ {
+		field := getMaxPath(config.Field(i).String())
+		if !strings.HasPrefix(field, "/") {
+			continue
+		}
+		mounts = append(mounts, field)
+	}
+	config = reflect.ValueOf(b.Config.Mixer)
+	for i:=0; i < config.NumField(); i++ {
+		field := getMaxPath(config.Field(i).String())
+		if !strings.HasPrefix(field, "/") {
+			continue
+		}
+		mounts = append(mounts, field)
+	}
+
+	return reduceDockerMounts(mounts)
+}
+
+
+func (b *Builder) RunCommandInContainer(cmd []string) error {
 	format, first, _, err := b.getUpstreamFormatRange(b.UpstreamVer)
 	if err != nil {
 		return err
@@ -224,7 +297,31 @@ func (b *Builder) RunCommandInContainer(cmd string) error {
 	}
 
 	// Run command
-	fmt.Printf("Running command in container: %v", cmd)
+	fmt.Printf("Running command in container: %v\n", cmd)
+
+	wd, _ := os.Getwd()
+
+	// Build Docker image
+	dockerCmd := []string{
+		"docker",
+		"run",
+		"-i",
+		"--rm",
+		"--workdir", wd,
+		"--entrypoint", cmd[0],
+	}
+
+	mounts := b.getDockerMounts()
+	for _, path := range mounts {
+		dockerCmd = append(dockerCmd, "-v", fmt.Sprintf("%s:%s",path, path))
+	}
+
+	dockerCmd = append(dockerCmd, getDockerImageName(format))
+	dockerCmd = append(dockerCmd, cmd[1:]...)
+	// if err := helpers.RunCommand(dockerCmd[0], dockerCmd[1:]...); err != nil {
+	// 	return errors.Wrap(err, "Failed to build Docker image")
+	// }
+	fmt.Printf("Docker command: %q\n", strings.Join(dockerCmd, " "))
 
 	return nil
 }
