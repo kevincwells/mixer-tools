@@ -329,6 +329,27 @@ var buildImageCmd = &cobra.Command{
 	},
 }
 
+// TEMPORARY
+var buildDockerCmd = &cobra.Command{
+	Use:   "docker [command as args]",
+	Short: "TEMPORARY: Build a docker image and run command in it",
+	Long: `This is a temporary testing command for testing the RunCommandInContainer
+method. This passes an arbitrary command to be run within the container. This must
+be removed (and force-pushed away) before being merged into integration branch.
+
+NOTE: This MUST be run with --native.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		b, err := builder.NewFromConfig(config)
+		if err != nil {
+			fail(err)
+		}
+
+		if err := b.RunCommandInContainer(args); err != nil {
+			fail(err)
+		}
+	},
+}
+
 var buildDeltaPacksCmd = &cobra.Command{
 	Use:   "delta-packs",
 	Short: "Build packs used to optimize update between versions",
@@ -411,6 +432,7 @@ var buildCmds = []*cobra.Command{
 	buildUpdateCmd,
 	buildAllCmd,
 	buildImageCmd,
+	buildDockerCmd,
 	buildDeltaPacksCmd,
 	buildOldFormatCmd,
 	buildNewFormatCmd,

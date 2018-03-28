@@ -103,12 +103,12 @@ func (b *Builder) CheckBumpNeeded() (bool, error) {
 		return false, err
 	}
 	// Check what format our last built version is part of
-	oldVer, err := b.DownloadFileFromUpstream(filepath.Join("/update", version, "format"))
+	oldVer, err := b.DownloadFileFromUpstreamAsString(filepath.Join("/update", version, "format"))
 	if err != nil {
 		return false, errors.Wrapf(err, "Could not read format version from %s", b.UpstreamURL)
 	}
 	// Check what format our to-be-built version is part of
-	newVer, err := b.DownloadFileFromUpstream(filepath.Join("/update", b.MixVer, "format"))
+	newVer, err := b.DownloadFileFromUpstreamAsString(filepath.Join("/update", b.MixVer, "format"))
 	if err != nil {
 		return false, errors.Wrapf(err, "Could not read format version from %s", b.UpstreamURL)
 	}
