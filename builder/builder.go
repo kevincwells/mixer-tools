@@ -196,14 +196,14 @@ func (b *Builder) getUpstreamFileReader(subpath string) (*io.ReadCloser, error) 
 	return &resp.Body, nil
 }
 
-// DownloadFileFromUpstreamAsString will download a file from the Upstream URL
-// joined with the passed subpath. It will trim spaces from the result.
-func (b *Builder) DownloadFileFromUpstream(subpath string, filename string) (error) {
+// DownloadFileFromUpstream will download a file from the Upstream URL
+// joined with the passed subpath and write that file to the supplied filename.
+func (b *Builder) DownloadFileFromUpstream(subpath string, filename string) error {
 	fr, err := b.getUpstreamFileReader(subpath)
 	if err != nil {
 		return errors.Wrap(err, "Failed to download file from upstream")
 	}
-	defer func(){
+	defer func() {
 		_ = (*fr).Close()
 	}()
 
@@ -238,7 +238,7 @@ func (b *Builder) DownloadFileFromUpstreamAsString(subpath string) (string, erro
 	if err != nil {
 		return "", errors.Wrap(err, "Failed to download file from upstream")
 	}
-	defer func(){
+	defer func() {
 		_ = (*fr).Close()
 	}()
 

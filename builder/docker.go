@@ -17,7 +17,6 @@ package builder
 import (
 	"fmt"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -41,89 +40,86 @@ func (b *Builder) GetHostAndUpstreamFormats(upstreamVer string) (string, string,
 
 	// Get the upstream version
 	if upstreamVer == "" {
-		if err := b.ReadVersions(); err != nil {
+		if err = b.ReadVersions(); err != nil {
 			return "", "", errors.Wrap(err, "Unable to determine upstream version")
 		}
 		upstreamVer = b.UpstreamVer
 	} else if upstreamVer == "latest" {
-		ver, err := b.getLatestUpstreamVersion()
+		upstreamVer, err = b.getLatestUpstreamVersion()
 		if err != nil {
 			return "", "", err
 		}
-		upstreamVer = ver
 	}
 
 	upstreamFormat, _, _, err := b.getUpstreamFormatRange(upstreamVer)
 	if err != nil {
 		return "", "", err
 	}
-	
+
 	return string(hostFormat), upstreamFormat, nil
 }
 
-
-const Dockerfile = `FROM scratch
+const dockerfile = `FROM scratch
 ADD mixer.tar.xz /
 CMD ["/bin/bash"]
 `
 
-func (b *Builder) generateDockerBase(bundles bundleSet, ver string, baseDir string) error {
-	dockerChroot, err := ioutil.TempDir(baseDir, "chroot-")
-	if err != nil {
-		errors.Errorf("Failed to generate temporary docker image chroot: %s", err)
-	}
-	defer func() {
-		_ = os.RemoveAll(dockerChroot)
-	}()
+// func (b *Builder) generateDockerBase(bundles bundleSet, ver string, baseDir string) error {
+// 	dockerChroot, err := ioutil.TempDir(baseDir, "chroot-")
+// 	if err != nil {
+// 		errors.Errorf("Failed to generate temporary docker image chroot: %s", err)
+// 	}
+// 	defer func() {
+// 		_ = os.RemoveAll(dockerChroot)
+// 	}()
 
-	bundlePath := filepath.Join(dockerChroot, "usr/share/clear/bundles")
-	os.MkdirAll(bundlePath, 0755)
-	for name, _ := range bundles {
-		// Touch the bundle file
-		f, err := os.Create(filepath.Join(bundlePath, name))
-		if err != nil {
-			return errors.Wrapf(err, "Failed to touch bundle file for %q", name)
-		}
-		f.Close()
+// 	bundlePath := filepath.Join(dockerChroot, "usr/share/clear/bundles")
+// 	os.MkdirAll(bundlePath, 0755)
+// 	for name := range bundles {
+// 		// Touch the bundle file
+// 		f, err := os.Create(filepath.Join(bundlePath, name))
+// 		if err != nil {
+// 			return errors.Wrapf(err, "Failed to touch bundle file for %q", name)
+// 		}
+// 		f.Close()
+// 	}
 
-	}
+// 	// Build the update url
+// 	end, err := url.Parse("/update")
+// 	if err != nil {
+// 		return err
+// 	}
+// 	base, err := url.Parse(b.UpstreamURL)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	upstateURL := base.ResolveReference(end).String()
 
-	// Build the update url
-	end, err := url.Parse("/update")
-	if err != nil {
-		return err
-	}
-	base, err := url.Parse(b.UpstreamURL)
-	if err != nil {
-		return err
-	}
-	upstateURL := base.ResolveReference(end).String()
+// 	// "swupd install" the contents for the chroot
+// 	fmt.Println("Generating docker image content")
+// 	cmdString := fmt.Sprintf("swupd verify --install --path=%s -m %s -u %s -F staging -S %s",
+// 		dockerChroot,
+// 		ver,
+// 		upstateURL,
+// 		filepath.Join(dockerChroot, "swupd-state"),
+// 	)
+// 	cmd := strings.Split(cmdString, " ")
+// 	err = helpers.RunCommand(cmd[0], cmd[1:]...)
+// 	if err != nil {
+// 		return errors.Wrap(err, "Error creating docker image chroot")
+// 	}
 
-	// "swupd install" the contents for the chroot
-	fmt.Println("Generating docker image content")
-	cmdString := fmt.Sprintf("swupd verify --install --path=%s -m %s -u %s -F staging -S %s", 
-		dockerChroot, 
-		ver,
-		upstateURL,
-		filepath.Join(dockerChroot, "swupd-state"),
-		)
-	cmd := strings.Split(cmdString, " ")
-	err = helpers.RunCommand(cmd[0], cmd[1:]...)
-	if err != nil {
-		return errors.Wrap(err, "Error creating docker image chroot")
-	}
+// 	// Tar up the dockerfile chroot
+// 	fmt.Println("Compressing docker image chroot")
+// 	cmdString = fmt.Sprintf("tar -C %s -cJf %s .", dockerChroot, filepath.Join(baseDir, "dockerbase.tar.xz"))
+// 	cmd = strings.Split(cmdString, " ")
+// 	err = helpers.RunCommand(cmd[0], cmd[1:]...)
+// 	if err != nil {
+// 		return errors.Wrap(err, "Error compressing docker image chroot")
+// 	}
 
-	// Tar up the dockerfile chroot
-	fmt.Println("Compressing docker image chroot")
-	cmdString = fmt.Sprintf("tar -C %s -cJf %s .", dockerChroot, filepath.Join(baseDir, "dockerbase.tar.xz"))
-	cmd = strings.Split(cmdString, " ")
-	err = helpers.RunCommand(cmd[0], cmd[1:]...)
-	if err != nil {
-		return errors.Wrap(err, "Error compressing docker image chroot")
-	}
-
-	return nil
-}
+// 	return nil
+// }
 
 func (b *Builder) fetchDockerBase(ver string, baseDir string) error {
 	filename := filepath.Join(baseDir, "mixer.tar.xz")
@@ -133,15 +129,14 @@ func (b *Builder) fetchDockerBase(ver string, baseDir string) error {
 		fmt.Println("File already exists; skipping download")
 		return nil
 	}
-	
-	// TODO: Remove this once mixer image is published with releases
-	url := "http://clr-jenkins.ostc.intel.com/job/create-docker-mixer/ws/mixer.tar.xz"
-	if err := helpers.DownloadInsecure(filename, url, true); err != nil {
-		return errors.Wrap(err, "Failed to download internal temporary docker base")
-	}
-	return nil
 
-	
+	// TODO: Remove this once mixer image is published with releases
+	// url := "http://clr-jenkins.ostc.intel.com/job/create-docker-mixer/ws/mixer.tar.xz"
+	// if err := helpers.DownloadInsecure(filename, url, true); err != nil {
+	// 	return errors.Wrap(err, "Failed to download internal temporary docker base")
+	// }
+	// return nil
+
 	// Download the mixer base image from upstream
 	upstreamFile := fmt.Sprintf("/releases/%s/clear/mixer.tar.xz", ver)
 	if err := b.DownloadFileFromUpstream(upstreamFile, filename); err != nil {
@@ -167,7 +162,7 @@ func createDockerfile(dir string) error {
 		_ = f.Close()
 	}()
 
-	_, err = f.Write([]byte(Dockerfile))
+	_, err = f.Write([]byte(dockerfile))
 	if err != nil {
 		return err
 	}
@@ -184,9 +179,9 @@ func (b *Builder) buildDockerImage(format, ver string) error {
 	wd, _ := os.Getwd()
 	dockerRoot := filepath.Join(wd, fmt.Sprintf("docker/mixer-%s", format))
 	if err := os.MkdirAll(dockerRoot, 0777); err != nil {
-		errors.Wrapf(err, "Failed to generate docker work dir: %s", dockerRoot)
+		return errors.Wrapf(err, "Failed to generate docker work dir: %s", dockerRoot)
 	}
-	
+
 	// TODO: Check if docker image already exists and return early
 	//		Run "docker images -q mixer-tools/mixer:format" and check if response == ""
 
@@ -210,7 +205,7 @@ func (b *Builder) buildDockerImage(format, ver string) error {
 		"--rm",
 		filepath.Join(dockerRoot, "."),
 	}
-	if err := helpers.RunCommand(cmd[0],cmd[1:]...); err != nil {
+	if err := helpers.RunCommand(cmd[0], cmd[1:]...); err != nil {
 		return errors.Wrap(err, "Failed to build Docker image")
 	}
 
@@ -220,7 +215,7 @@ func (b *Builder) buildDockerImage(format, ver string) error {
 // reduceDockerMounts takes a list of directory paths and reduces it to a
 // minimal, non-redundant list. For example, if the list includes both "/foo"
 // and "/foo/bar", then "/foo/bar" would be removed, as its parent is already
-// in the list. This funciton requires paths to have no trailing slash.
+// in the list. This function requires paths to have no trailing slash.
 func reduceDockerMounts(paths []string) []string {
 	if len(paths) <= 1 {
 		return paths
@@ -228,8 +223,8 @@ func reduceDockerMounts(paths []string) []string {
 
 	sort.Strings(paths) // Puts "/foo" before "/foo/bar"
 
-	for i:=1; i < len(paths); i++ {
-		if paths[i] == paths[i-1] || strings.HasPrefix(paths[i], paths[i-1] + "/") { // "/" is to prevent "/foobar" matching "/foo"
+	for i := 1; i < len(paths); i++ {
+		if paths[i] == paths[i-1] || strings.HasPrefix(paths[i], paths[i-1]+"/") { // "/" is to prevent "/foobar" matching "/foo"
 			paths = append(paths[:i], paths[i+1:]...)
 			i-- // Because removal shifts things left
 		}
@@ -241,7 +236,7 @@ func reduceDockerMounts(paths []string) []string {
 // getDockerMounts returns a minimal list of all directories in the config that
 // need to be mounted inside the container. Only the "Buiilder" and "Mixer"
 // sections of the conf are parsed.
-func (b *Builder) getDockerMounts() ([]string) {
+func (b *Builder) getDockerMounts() []string {
 	// Returns the longest substring of path that is the path to a directory.
 	var getMaxPath func(path string) string
 	getMaxPath = func(path string) string {
@@ -265,7 +260,7 @@ func (b *Builder) getDockerMounts() ([]string) {
 	mounts := []string{wd}
 
 	config := reflect.ValueOf(b.Config.Builder)
-	for i:=0; i < config.NumField(); i++ {
+	for i := 0; i < config.NumField(); i++ {
 		field := getMaxPath(config.Field(i).String())
 		if !strings.HasPrefix(field, "/") {
 			continue
@@ -273,7 +268,7 @@ func (b *Builder) getDockerMounts() ([]string) {
 		mounts = append(mounts, field)
 	}
 	config = reflect.ValueOf(b.Config.Mixer)
-	for i:=0; i < config.NumField(); i++ {
+	for i := 0; i < config.NumField(); i++ {
 		field := getMaxPath(config.Field(i).String())
 		if !strings.HasPrefix(field, "/") {
 			continue
@@ -284,13 +279,14 @@ func (b *Builder) getDockerMounts() ([]string) {
 	return reduceDockerMounts(mounts)
 }
 
-
+// RunCommandInContainer will pull the content necessary to build a docker
+// image capable of running the desired command, build that image, and then
+// run the command in that image.
 func (b *Builder) RunCommandInContainer(cmd []string) error {
 	format, first, _, err := b.getUpstreamFormatRange(b.UpstreamVer)
 	if err != nil {
 		return err
 	}
-
 
 	if err := b.buildDockerImage(format, fmt.Sprint(first)); err != nil {
 		return err
@@ -313,51 +309,58 @@ func (b *Builder) RunCommandInContainer(cmd []string) error {
 
 	mounts := b.getDockerMounts()
 	for _, path := range mounts {
-		dockerCmd = append(dockerCmd, "-v", fmt.Sprintf("%s:%s",path, path))
+		dockerCmd = append(dockerCmd, "-v", fmt.Sprintf("%s:%s", path, path))
 	}
 
 	dockerCmd = append(dockerCmd, getDockerImageName(format))
 	dockerCmd = append(dockerCmd, cmd[1:]...)
-	// if err := helpers.RunCommand(dockerCmd[0], dockerCmd[1:]...); err != nil {
-	// 	return errors.Wrap(err, "Failed to build Docker image")
-	// }
-	fmt.Printf("Docker command: %q\n", strings.Join(dockerCmd, " "))
+	// TODO: Figure out chicken-egg problem of when to activate this flag. Until
+	// upstream image content can be generated with a version that supports
+	// this flag, this cannot be appended. But until this is appended, we cannot
+	// have a version that supports auto-docker (the --native flag is needed
+	// to tell the in-docker mixer to run and not infinite cycle spawn new
+	// containers). Idea: Have an if-check on min format number. Below that
+	// dockerCmd = append(dockerCmd, "--native")
+
+	if err := helpers.RunCommand(dockerCmd[0], dockerCmd[1:]...); err != nil {
+		return errors.Wrap(err, "Failed to run command in container")
+	}
+	//fmt.Printf("Docker command: %q\n", strings.Join(dockerCmd, " "))
 
 	return nil
 }
 
+// func (b *Builder) Docker(bundles []string, ver string) error {
+// 	// Make bundleset for bundles
+// 	set := make(bundleSet)
+// 	for _, name := range bundles {
+// 		bundle, err := b.getBundleFromName(name)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		set[name] = bundle
+// 	}
+// 	fullSet, err := b.getFullBundleSet(set)
+// 	if err != nil {
+// 		return err
+// 	}
 
-func (b *Builder) Docker(bundles []string, ver string) error {
-	// Make bundleset for bundles
-	set := make(bundleSet)
-	for _, name := range bundles {
-		bundle, err := b.getBundleFromName(name)
-		if err != nil {
-			return err
-		}
-		set[name] = bundle
-	}
-	fullSet, err := b.getFullBundleSet(set)
-	if err != nil {
-		return err
-	}
+// 	// Make tmpdir
+// 	wd, _ := os.Getwd()
+// 	dockerRoot, err := ioutil.TempDir(wd, "docker-")
+// 	if err != nil {
+// 		errors.Errorf("Failed to generate temporary docker dirt: %s", err)
+// 	}
 
-	// Make tmpdir
-	wd, _ := os.Getwd()
-	dockerRoot, err := ioutil.TempDir(wd, "docker-")
-	if err != nil {
-		errors.Errorf("Failed to generate temporary docker dirt: %s", err)
-	}
+// 	err = b.generateDockerBase(fullSet, ver, dockerRoot)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	err = b.generateDockerBase(fullSet, ver, dockerRoot)
-	if err != nil {
-		return err
-	}
+// 	err = createDockerfile(dockerRoot)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	err = createDockerfile(dockerRoot)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
+// 	return nil
+// }

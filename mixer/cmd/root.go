@@ -27,6 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var config string
@@ -70,17 +71,29 @@ var RootCmd = &cobra.Command{
 				version = initFlags.clearVer
 			}
 			b := builder.New()
-			hostFormat, upstreamFormat, err :=b.GetHostAndUpstreamFormats(version)
+			hostFormat, upstreamFormat, err := b.GetHostAndUpstreamFormats(version)
 			if err != nil {
 				return err
 			}
-			
+
 			if hostFormat == "" {
 				fmt.Println("Warning: Unable to determine host format. Running natively may fail.")
 			} else if hostFormat != upstreamFormat {
 				fmt.Println("Warning: The host format and mix upstream format do not match.",
 					"Mixer may be incompatible with this format; running natively may fail.")
 			}
+		} else if cmd.Name() != "init" { // Init needs to be handled differently because there is no config yet
+			b, err := builder.NewFromConfig(config)
+			if err != nil {
+				fail(err)
+			}
+			if err := b.RunCommandInContainer(reconstructCommand(cmd, args)); err != nil {
+				fail(err)
+			}
+			// Cancel native run
+			cmd.RunE = nil
+			cmd.Run = func(cmd *cobra.Command, args []string) {} // No-op
+			return nil
 		}
 
 		return checkCmdDeps(cmd)
@@ -140,6 +153,14 @@ var initCmd = &cobra.Command{
 		if err := b.LoadBuilderConf(config); err != nil {
 			fail(err)
 		}
+
+		if !builder.Native {
+			if err := b.RunCommandInContainer(reconstructCommand(cmd, args)); err != nil {
+				fail(err)
+			}
+			return nil
+		}
+
 		err := b.InitMix(initFlags.clearVer, strconv.Itoa(initFlags.mixver), initFlags.allLocal, initFlags.allUpstream, initFlags.upstreamURL, initFlags.git)
 		if err != nil {
 			fail(err)
@@ -187,6 +208,23 @@ func init() {
 	externalDeps[initCmd] = []string{
 		"git",
 	}
+}
+
+func reconstructCommand(cmd *cobra.Command, args []string) []string {
+	command := []string{cmd.Name()}
+
+	// Loop back up parents, prepending command name
+	for p := cmd.Parent(); p != nil; p = p.Parent() {
+		command = append([]string{p.Name()}, command...)
+	}
+	// For each flag that was set, append its name and value
+	cmd.Flags().Visit(func(flag *pflag.Flag) {
+		command = append(command, "--"+flag.Name+"="+flag.Value.String())
+	})
+	// Append args
+	command = append(command, args...)
+
+	return command
 }
 
 // externalDeps let commands keep track of their external program dependencies. Those will be

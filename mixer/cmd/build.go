@@ -183,9 +183,7 @@ var buildImageCmd = &cobra.Command{
 	},
 }
 
-
 // TEMPORARY
-
 
 var buildDockerFlags struct {
 	version string
@@ -199,17 +197,15 @@ var buildDockerCmd = &cobra.Command{
 		if err != nil {
 			fail(err)
 		}
-		
+
 		command := []string{cmd.Name()}
-
-
 
 		for p := cmd.Parent(); p != nil; p = p.Parent() {
 			command = append([]string{p.Name()}, command...)
 		}
-		cmd.Flags().Visit(func(flag *pflag.Flag){
-				command = append(command, "--" + flag.Name + "=" + flag.Value.String())
-			})
+		cmd.Flags().Visit(func(flag *pflag.Flag) {
+			command = append(command, "--"+flag.Name+"="+flag.Value.String())
+		})
 
 		command = append(command, args...)
 
