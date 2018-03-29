@@ -107,18 +107,28 @@ func getDockerImageName(format string) string {
 }
 
 func (b *Builder) buildDockerImage(format, ver string) error {
+	// Check if docker image already exists and return early
+	// TODO: Look into Docker Content Trust, or any other mechanism for verifying
+	// the validity of the docker image
+	cmd := []string{
+		"docker",
+		"images",
+		"-q", getDockerImageName(format),
+	}
+	output, err := helpers.RunCommandOutput(cmd[0], cmd[1:]...)
+	if err != nil {
+		return errors.Wrapf(err, "Error checking for docker image %q", getDockerImageName(format))
+	}
+	if output.String() != "" {
+		return nil
+	}
+
 	// Make docker root dir
 	wd, _ := os.Getwd()
 	dockerRoot := filepath.Join(wd, fmt.Sprintf("docker/mixer-%s", format))
 	if err := os.MkdirAll(dockerRoot, 0777); err != nil {
 		return errors.Wrapf(err, "Failed to generate docker work dir: %s", dockerRoot)
 	}
-
-	// TODO: Check if docker image already exists and return early
-	//		Run "docker images -q mixer-tools/mixer:format" and check if response == ""
-
-	// TODO: Look into Docker Content Trust, or any other mechanism for verifying
-	// the validity of the docker image
 
 	// Fetch docker image base
 	if err := b.fetchDockerBase(ver, dockerRoot); err != nil {
@@ -130,7 +140,7 @@ func (b *Builder) buildDockerImage(format, ver string) error {
 		return err
 	}
 	// Build Docker image
-	cmd := []string{
+	cmd = []string{
 		"docker",
 		"build",
 		"-t", getDockerImageName(format),
