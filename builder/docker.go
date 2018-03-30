@@ -15,6 +15,8 @@
 package builder
 
 import (
+	"crypto/sha512"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -59,17 +61,32 @@ func (b *Builder) GetHostAndUpstreamFormats(upstreamVer string) (string, string,
 	return string(hostFormat), upstreamFormat, nil
 }
 
+func getCheckSum(filename string) string {
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return ""
+	}
+	checksum := sha512.Sum512(content)
+	return hex.EncodeToString(checksum[:])
+}
+
 func (b *Builder) fetchDockerBase(ver string, baseDir string) error {
+	upstreamFile := fmt.Sprintf("/releases/%s/clear/clear-%s-mixer.tar.xz", ver, ver)
 	filename := filepath.Join(baseDir, "mixer.tar.xz")
 	// Return if already exists
 	if _, err := os.Stat(filename); err == nil {
-		// TODO: Check if checksum/sig matches (once base images are signed)
-		fmt.Println("File already exists; skipping download")
-		return nil
+		checksum, err := b.DownloadFileFromUpstreamAsString(upstreamFile + "-SHA512SUMS")
+		if err == nil {
+			checksum = strings.Split(checksum, " ")[0]
+			if checksum == getCheckSum(filename) {
+				// Valid file already exists, so skip download
+				return nil
+			}
+		}
 	}
 
 	// Download the mixer base image from upstream
-	upstreamFile := fmt.Sprintf("/releases/%s/clear/mixer.tar.xz", ver)
+	fmt.Println("Downloading image from upstream...")
 	if err := b.DownloadFileFromUpstream(upstreamFile, filename); err != nil {
 		return errors.Wrapf(err, "Failed to download docker image base for ver %s", ver)
 	}
@@ -140,6 +157,7 @@ func (b *Builder) buildDockerImage(format, ver string) error {
 		return err
 	}
 	// Build Docker image
+	fmt.Println("Building Docker image...")
 	cmd = []string{
 		"docker",
 		"build",
@@ -147,7 +165,7 @@ func (b *Builder) buildDockerImage(format, ver string) error {
 		"--rm",
 		filepath.Join(dockerRoot, "."),
 	}
-	if err := helpers.RunCommand(cmd[0], cmd[1:]...); err != nil {
+	if err := helpers.RunCommandSilent(cmd[0], cmd[1:]...); err != nil {
 		return errors.Wrap(err, "Failed to build Docker image")
 	}
 
@@ -257,12 +275,7 @@ func (b *Builder) RunCommandInContainer(cmd []string) error {
 
 	dockerCmd = append(dockerCmd, getDockerImageName(format))
 	dockerCmd = append(dockerCmd, cmd[1:]...)
-	// TODO: Figure out chicken-egg problem of when to activate this flag. Until
-	// upstream image content can be generated with a version that supports
-	// this flag, this cannot be appended. But until this is appended, we cannot
-	// have a version that supports auto-docker (the --native flag is needed
-	// to tell the in-docker mixer to run and not infinite cycle spawn new
-	// containers). Idea: Have an if-check on min format number. Below that
+	// TODO: Add this back in once we have published images that understand it
 	// dockerCmd = append(dockerCmd, "--native")
 
 	//fmt.Printf("Docker command: %q\n", strings.Join(dockerCmd, " "))
