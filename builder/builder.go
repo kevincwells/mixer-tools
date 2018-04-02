@@ -2256,3 +2256,33 @@ Updated upstream: %d (format: %s)
 
 	return nil
 }
+
+// StageMixForBump prepares the mix for the two format bumps to be executed. The
+// current upstreamversion is saved in a backup ".bump" file, and replaced with
+// the latest version in the format range of the most recent build.
+func (b *Builder) StageMixForBump() error {
+	lastBuildVer, err := b.getLastBuildVersion()
+	if err != nil {
+		return err
+	}
+	format, first, latest, err := b.getUpstreamFormatRange(lastBuildVer)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("The upstream version for this build (%s) is outside the format range of your last mix "+
+		"(format %s, upstream versions %d to %d). This build cannot be done until you complete a "+
+		"format-bump build. Please run the following two commands to complete the format bump:\nmixer "+
+		"build format-old\nmixer build format-new\nOnce these have completed, you can re-run this build.\n",
+		b.UpstreamVer, format, first, latest)
+
+	// Copy current upstreamversion to upstreamversion.bump
+	vFile := filepath.Join(b.Config.Builder.VersionPath, b.MixVerFile)
+	vBFile := filepath.Join(b.Config.Builder.VersionPath, b.MixVerFile+".bump")
+	if err := helpers.CopyFile(vBFile, vFile); err != nil {
+		return err
+	}
+
+	// Set current upstreamversion to latest
+	return ioutil.WriteFile(vFile, []byte(strconv.FormatUint(uint64(latest), 10)), 0644)
+}

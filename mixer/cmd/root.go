@@ -73,7 +73,7 @@ var RootCmd = &cobra.Command{
 			b := builder.New()
 			hostFormat, upstreamFormat, err := b.GetHostAndUpstreamFormats(version)
 			if err != nil {
-				return err
+				fail(err)
 			}
 
 			if hostFormat == "" {
@@ -82,11 +82,35 @@ var RootCmd = &cobra.Command{
 				fmt.Println("Warning: The host format and mix upstream format do not match.",
 					"Mixer may be incompatible with this format; running natively may fail.")
 			}
-		} else if cmd.Name() != "init" { // Init needs to be handled differently because there is no config yet
+		}
+
+		// If it's a build command, but *NOT* a build format bump command
+		if !cmdContains(cmd, "format-new") && !cmdContains(cmd, "format-old") && cmdContains(cmd, "build") {
 			b, err := builder.NewFromConfig(config)
 			if err != nil {
 				fail(err)
 			}
+
+			if bumpNeeded, err := b.CheckBumpNeeded(); err != nil {
+				return err
+			} else if bumpNeeded {
+				if err := b.StageMixForBump(); err != nil {
+					fail(errors.Wrap(err, "Failed to stage mix for format bump"))
+				}
+				// Cancel native run
+				cmd.RunE = nil
+				cmd.Run = func(cmd *cobra.Command, args []string) {} // No-op
+				return nil
+			}
+		}
+
+		// If Native==false, run command in container
+		if !builder.Native && !cmdContains(cmd, "init") { // Init needs to be handled differently because there is no config yet
+			b, err := builder.NewFromConfig(config)
+			if err != nil {
+				fail(err)
+			}
+
 			if err := b.RunCommandInContainer(reconstructCommand(cmd, args)); err != nil {
 				fail(err)
 			}
@@ -208,6 +232,17 @@ func init() {
 	externalDeps[initCmd] = []string{
 		"git",
 	}
+}
+
+// cmdContains returns true if cmd or any of its parents are named name
+func cmdContains(cmd *cobra.Command, name string) bool {
+	if cmd.Name() == name {
+		return true
+	}
+	if cmd.HasParent() {
+		return cmdContains(cmd.Parent(), name)
+	}
+	return false
 }
 
 func reconstructCommand(cmd *cobra.Command, args []string) []string {
