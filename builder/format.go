@@ -101,6 +101,8 @@ func (b *Builder) CheckBumpNeeded() (bool, error) {
 	version, err := b.getLastBuildVersion()
 	if err != nil {
 		return false, err
+	} else if version == "" {
+		return false, nil
 	}
 	// Check what format our last built version is part of
 	oldVer, err := b.DownloadFileFromUpstreamAsString(filepath.Join("/update", version, "format"))

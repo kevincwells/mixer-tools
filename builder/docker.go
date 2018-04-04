@@ -41,7 +41,7 @@ func (b *Builder) GetHostAndUpstreamFormats() (string, string, error) {
 	}
 
 	// Get the upstream format
-	upstreamFormat, err := b.DownloadFileFromUpstreamAsString(filepath.Join("/update", b.UpstreamVer, "format"))
+	upstreamFormat, err := b.DownloadFileFromUpstreamAsString(fmt.Sprintf("update/%s/format", b.UpstreamVer))
 	if err != nil {
 		return "", "", err
 	}
@@ -231,12 +231,12 @@ func (b *Builder) getDockerMounts() []string {
 // image capable of running the desired command, build that image, and then
 // run the command in that image.
 func (b *Builder) RunCommandInContainer(cmd []string) error {
-	format, first, _, err := b.getUpstreamFormatRange(b.UpstreamVer)
+	format, _, latest, err := b.getUpstreamFormatRange(b.UpstreamVer)
 	if err != nil {
 		return err
 	}
 
-	if err := b.buildDockerImage(format, fmt.Sprint(first)); err != nil {
+	if err := b.buildDockerImage(format, fmt.Sprint(latest)); err != nil {
 		return err
 	}
 
