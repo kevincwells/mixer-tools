@@ -64,14 +64,19 @@ var RootCmd = &cobra.Command{
 			}
 		}
 
+		// Init needs to be handled differently because there is no config yet
+		if cmdContains(cmd, "init") {
+			return checkCmdDeps(cmd)
+		}
+
+		b, err := builder.NewFromConfig(config)
+		if err != nil {
+			fail(err)
+		}
+
 		// if '--native', check if format missmatch
 		if builder.Native {
-			var version string
-			if cmd.Name() == "init" {
-				version = initFlags.clearVer
-			}
-			b := builder.New()
-			hostFormat, upstreamFormat, err := b.GetHostAndUpstreamFormats(version)
+			hostFormat, upstreamFormat, err := b.GetHostAndUpstreamFormats()
 			if err != nil {
 				fail(err)
 			}
@@ -86,11 +91,6 @@ var RootCmd = &cobra.Command{
 
 		// If it's a build command, but *NOT* a build format bump command
 		if !cmdContains(cmd, "format-new") && !cmdContains(cmd, "format-old") && cmdContains(cmd, "build") {
-			b, err := builder.NewFromConfig(config)
-			if err != nil {
-				fail(err)
-			}
-
 			if bumpNeeded, err := b.CheckBumpNeeded(); err != nil {
 				return err
 			} else if bumpNeeded {
@@ -105,12 +105,7 @@ var RootCmd = &cobra.Command{
 		}
 
 		// If Native==false, run command in container
-		if !builder.Native && !cmdContains(cmd, "init") { // Init needs to be handled differently because there is no config yet
-			b, err := builder.NewFromConfig(config)
-			if err != nil {
-				fail(err)
-			}
-
+		if !builder.Native {
 			if err := b.RunCommandInContainer(reconstructCommand(cmd, args)); err != nil {
 				fail(err)
 			}

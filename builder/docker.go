@@ -33,27 +33,15 @@ import (
 // GetHostAndUpstreamFormats retreives the formats for the host and the mix's
 // upstream version. It attempts to determine the format for the host machine,
 // and if successful, looks up the format for the desired upstream version.
-func (b *Builder) GetHostAndUpstreamFormats(upstreamVer string) (string, string, error) {
+func (b *Builder) GetHostAndUpstreamFormats() (string, string, error) {
 	// Determine the host's format
 	hostFormat, err := ioutil.ReadFile("/usr/share/defaults/swupd/format")
 	if err != nil && !os.IsNotExist(err) {
 		return "", "", err
 	}
 
-	// Get the upstream version
-	if upstreamVer == "" {
-		if err = b.ReadVersions(); err != nil {
-			return "", "", errors.Wrap(err, "Unable to determine upstream version")
-		}
-		upstreamVer = b.UpstreamVer
-	} else if upstreamVer == "latest" {
-		upstreamVer, err = b.getLatestUpstreamVersion()
-		if err != nil {
-			return "", "", err
-		}
-	}
-
-	upstreamFormat, _, _, err := b.getUpstreamFormatRange(upstreamVer)
+	// Get the upstream format
+	upstreamFormat, err := b.DownloadFileFromUpstreamAsString(filepath.Join("/update", b.UpstreamVer, "format"))
 	if err != nil {
 		return "", "", err
 	}
