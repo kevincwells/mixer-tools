@@ -173,13 +173,6 @@ var initCmd = &cobra.Command{
 			fail(err)
 		}
 
-		if !builder.Native {
-			if err := b.RunCommandInContainer(reconstructCommand(cmd, args)); err != nil {
-				fail(err)
-			}
-			return nil
-		}
-
 		err := b.InitMix(initFlags.clearVer, strconv.Itoa(initFlags.mixver), initFlags.allLocal, initFlags.allUpstream, initFlags.upstreamURL, initFlags.git)
 		if err != nil {
 			fail(err)
