@@ -2261,7 +2261,7 @@ Updated upstream: %d (format: %s)
 // current upstreamversion is saved in a backup ".bump" file, and replaced with
 // the latest version in the format range of the most recent build.
 func (b *Builder) StageMixForBump() error {
-	lastBuildVer, err := b.getLastBuildVersion()
+	lastBuildVer, err := b.getLastBuildUpstreamVersion()
 	if err != nil {
 		return err
 	}
