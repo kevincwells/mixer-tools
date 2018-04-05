@@ -74,7 +74,7 @@ var RootCmd = &cobra.Command{
 			fail(err)
 		}
 
-		// if '--native', check if format missmatch
+		// If running natively, check for format missmatch and warn
 		if builder.Native {
 			hostFormat, upstreamFormat, err := b.GetHostAndUpstreamFormats()
 			if err != nil {
@@ -89,27 +89,26 @@ var RootCmd = &cobra.Command{
 			}
 		}
 
+		// For build commands (except format bump commands), check if building
+		// across a format; if so, inform and exit.
 		// If it's a build command, but *NOT* a build format bump command
 		if !cmdContains(cmd, "format-new") && !cmdContains(cmd, "format-old") && cmdContains(cmd, "build") {
 			if bumpNeeded, err := b.CheckBumpNeeded(); err != nil {
 				return err
 			} else if bumpNeeded {
-				if err := b.StageMixForBump(); err != nil {
-					fail(errors.Wrap(err, "Failed to stage mix for format bump"))
-				}
-				// Cancel native run
+				// Cancel native run and return
 				cmd.RunE = nil
 				cmd.Run = func(cmd *cobra.Command, args []string) {} // No-op
 				return nil
 			}
 		}
 
-		// If Native==false, run command in container
-		if !builder.Native {
+		// If Native==false, run ONLY build commands in container
+		if !builder.Native && cmdContains(cmd, "build") {
 			if err := b.RunCommandInContainer(reconstructCommand(cmd, args)); err != nil {
 				fail(err)
 			}
-			// Cancel native run
+			// Cancel native run and return
 			cmd.RunE = nil
 			cmd.Run = func(cmd *cobra.Command, args []string) {} // No-op
 			return nil

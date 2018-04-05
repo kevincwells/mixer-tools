@@ -15,6 +15,7 @@
 package builder
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -133,7 +134,7 @@ func (b *Builder) CheckBumpNeeded() (bool, error) {
 		return false, errors.Wrapf(err, "Could not read format version from %s", b.UpstreamURL)
 	}
 	// Check what format our to-be-built version is part of
-	newVer, err := b.DownloadFileFromUpstreamAsString(filepath.Join("/update", b.MixVer, "format"))
+	newVer, err := b.DownloadFileFromUpstreamAsString(filepath.Join("/update", b.UpstreamVer, "format"))
 	if err != nil {
 		return false, errors.Wrapf(err, "Could not read format version from %s", b.UpstreamURL)
 	}
@@ -150,6 +151,16 @@ func (b *Builder) CheckBumpNeeded() (bool, error) {
 
 	// We always need to perform a format bump if these are not equal
 	if oldFmt != newFmt {
+		format, first, latest, err := b.getUpstreamFormatRange(version)
+		if err != nil {
+			return false, err
+		}
+		fmt.Printf("The upstream version for this build (%s) is outside the format range of your last mix "+
+			"(format %s, upstream versions %d to %d). This build cannot be done until you complete a "+
+			"format-bump build. Please run the following two commands to complete the format bump:\nmixer "+
+			"build format-old\nmixer build format-new\nOnce these have completed, you can re-run this build.\n",
+			b.UpstreamVer, format, first, latest)
+
 		return true, nil
 	}
 
