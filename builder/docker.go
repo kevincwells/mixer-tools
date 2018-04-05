@@ -84,6 +84,7 @@ func (b *Builder) fetchDockerBase(ver string, baseDir string) error {
 
 const dockerfile = `FROM scratch
 ADD mixer.tar.xz /
+ENV LC_ALL="en_US.UTF-8"
 RUN clrtrust generate
 CMD ["/bin/bash"]
 `
